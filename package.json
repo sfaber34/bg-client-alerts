@@ -1,0 +1,28 @@
+{
+  "name": "buidlguidl-telegram-alerts",
+  "version": "1.0.0",
+  "description": "Telegram alert service for buidlguidl-client Ethereum node monitoring",
+  "main": "alerts.js",
+  "scripts": {
+    "start": "node alerts.js",
+    "dev": "node alerts.js"
+  },
+  "keywords": [
+    "telegram",
+    "alerts",
+    "ethereum",
+    "monitoring",
+    "buidlguidl"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "firebase-admin": "^12.0.0",
+    "node-telegram-bot-api": "^0.64.0"
+  }
+}
+
