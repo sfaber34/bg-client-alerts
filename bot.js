@@ -1,7 +1,13 @@
 const TelegramBot = require('node-telegram-bot-api');
-const { generateUniqueToken, saveToken, getTokenByChatId } = require('./utils');
+const { resolveENS, isENS, normalizeAddress, saveAddress, getAddressByChatId, deleteAddress } = require('./utils');
 
 let bot = null;
+
+// Store pending registrations (chatId -> waiting for ENS/address)
+const pendingRegistrations = new Map();
+
+// Store pending address changes (chatId -> { oldAddress, oldEns })
+const pendingChanges = new Map();
 
 /**
  * Initialize and start the Telegram bot
@@ -10,42 +16,41 @@ let bot = null;
 function initializeBot(botToken) {
   bot = new TelegramBot(botToken, { polling: true });
 
-  // /start command - Generate or show existing token
+  // /start command - Ask for ENS or address
   bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
     console.log(`📱 /start command received from chatId ${chatId}`);
 
     try {
-      // Check if user already has a token
-      let token = await getTokenByChatId(chatId);
+      // Check if user already registered
+      const existingAddress = await getAddressByChatId(chatId);
 
-      if (token) {
-        // User already has a token, show it
+      if (existingAddress) {
+        // User already has an address registered
+        const identifier = existingAddress.ens || existingAddress.address;
         await bot.sendMessage(
           chatId,
           `✅ *Welcome back!*\n\n` +
-          `Your token: \`${token}\`\n\n` +
+          `Your registered identifier: \`${identifier}\`\n\n` +
           `To use it, start your node with:\n` +
-          `\`node index.js --tg-alert-token ${token}\`\n\n` +
+          `\`node index.js --tg-alert-ens ${identifier}\`\n\n` +
           `Use /help for more commands.`,
           { parse_mode: 'Markdown' }
         );
-        console.log(`🔑 Showed existing token ${token} to chatId ${chatId}`);
+        console.log(`🔑 Showed existing identifier ${identifier} to chatId ${chatId}`);
       } else {
-        // Generate new token
-        token = await generateUniqueToken();
-        await saveToken(token, chatId);
-
+        // New user - ask for ENS or address
+        pendingRegistrations.set(chatId, true);
         await bot.sendMessage(
           chatId,
           `🎉 *Welcome to BuidlGuidl Alert Bot!*\n\n` +
-          `Your unique token: \`${token}\`\n\n` +
-          `To receive alerts, start your node with:\n` +
-          `\`node index.js --tg-alert-token ${token}\`\n\n` +
-          `Use /help for more commands.`,
+          `Please send me your ENS name or Ethereum address to get started.\n\n` +
+          `Examples:\n` +
+          `• \`vitalik.eth\`\n` +
+          `• \`0x1234...abcd\``,
           { parse_mode: 'Markdown' }
         );
-        console.log(`✨ Generated new token ${token} for chatId ${chatId}`);
+        console.log(`⏳ Waiting for ENS/address from chatId ${chatId}`);
       }
     } catch (error) {
       console.error('❌ Error in /start command:', error);
@@ -56,34 +61,78 @@ function initializeBot(botToken) {
     }
   });
 
-  // /showToken command - Display existing token
-  bot.onText(/\/showToken/, async (msg) => {
+  // /showAddress command - Display current registered address
+  bot.onText(/\/show/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`📱 /showToken command received from chatId ${chatId}`);
+    console.log(`📱 /show command received from chatId ${chatId}`);
 
     try {
-      const token = await getTokenByChatId(chatId);
+      const addressInfo = await getAddressByChatId(chatId);
 
-      if (token) {
+      if (addressInfo) {
+        const identifier = addressInfo.ens || addressInfo.address;
         await bot.sendMessage(
           chatId,
-          `🔑 *Your Token*\n\n` +
-          `\`${token}\`\n\n` +
-          `Use this token when starting your node:\n` +
-          `\`node index.js --tg-alert-token ${token}\``,
+          `🔑 *Your Registered Identifier*\n\n` +
+          `\`${identifier}\`\n\n` +
+          `Use this when starting your node:\n` +
+          `\`node index.js --tg-alert-ens ${identifier}\``,
           { parse_mode: 'Markdown' }
         );
-        console.log(`🔑 Showed token ${token} to chatId ${chatId}`);
+        console.log(`🔑 Showed identifier ${identifier} to chatId ${chatId}`);
       } else {
         await bot.sendMessage(
           chatId,
-          `❌ You don't have a token yet.\n\n` +
-          `Use /start to generate one.`
+          `❌ You haven't registered yet.\n\n` +
+          `Use /start to register your ENS or address.`
         );
-        console.log(`⚠️  No token found for chatId ${chatId}`);
+        console.log(`⚠️  No address found for chatId ${chatId}`);
       }
     } catch (error) {
-      console.error('❌ Error in /showToken command:', error);
+      console.error('❌ Error in /show command:', error);
+      await bot.sendMessage(
+        chatId,
+        '❌ Sorry, something went wrong. Please try again later.'
+      );
+    }
+  });
+
+  // /change command - Change registered address/ENS
+  bot.onText(/\/change/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`📱 /change command received from chatId ${chatId}`);
+
+    try {
+      const addressInfo = await getAddressByChatId(chatId);
+
+      if (!addressInfo) {
+        await bot.sendMessage(
+          chatId,
+          `❌ You haven't registered yet.\n\n` +
+          `Use /start to register your ENS or address first.`
+        );
+        return;
+      }
+
+      const currentIdentifier = addressInfo.ens || addressInfo.address;
+      
+      // Store old address info for cleanup
+      pendingChanges.set(chatId, {
+        oldAddress: addressInfo.docId,
+        oldEns: addressInfo.ens
+      });
+
+      await bot.sendMessage(
+        chatId,
+        `🔄 *Change Your Identifier*\n\n` +
+        `Currently registered: \`${currentIdentifier}\`\n\n` +
+        `Please send me your new ENS name or Ethereum address.\n\n` +
+        `⚠️ Your old registration will be removed once the new one is confirmed.`,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`⏳ Waiting for new identifier from chatId ${chatId}`);
+    } catch (error) {
+      console.error('❌ Error in /change command:', error);
       await bot.sendMessage(
         chatId,
         '❌ Sorry, something went wrong. Please try again later.'
@@ -101,13 +150,14 @@ function initializeBot(botToken) {
         chatId,
         `📚 *BuidlGuidl Alert Bot - Help*\n\n` +
         `*Available Commands:*\n` +
-        `/start - Generate your unique token (or show existing)\n` +
-        `/showToken - Display your current token\n` +
+        `/start - Register your ENS or Ethereum address\n` +
+        `/show - Display your registered identifier\n` +
+        `/change - Change your registered identifier\n` +
         `/help - Show this help message\n\n` +
         `*Setup Instructions:*\n` +
-        `1️⃣ Use /start to get your token\n` +
-        `2️⃣ Start your node with the token:\n` +
-        `   \`node index.js --tg-alert-token YOUR_TOKEN\`\n` +
+        `1️⃣ Use /start and provide your ENS or address\n` +
+        `2️⃣ Start your node with:\n` +
+        `   \`node index.js --tg-alert-ens YOUR_ENS_OR_ADDRESS\`\n` +
         `3️⃣ You'll receive alerts when your clients crash`,
         { parse_mode: 'Markdown' }
       );
@@ -120,24 +170,233 @@ function initializeBot(botToken) {
     }
   });
 
-  // Handle unknown commands
+  // Handle all text messages (for ENS/address input)
   bot.on('message', async (msg) => {
     const text = msg.text;
     const chatId = msg.chat.id;
 
-    // Ignore if it's a known command
+    // Ignore if it's a command
     if (text && text.startsWith('/')) {
-      const knownCommands = ['/start', '/showToken', '/help'];
+      const knownCommands = ['/start', '/show', '/change', '/help'];
       if (!knownCommands.some(cmd => text.startsWith(cmd))) {
         await bot.sendMessage(
           chatId,
           `❓ Unknown command. Use /help to see available commands.`
         );
       }
+      return;
+    }
+
+    // Check if we're waiting for new address (change command)
+    if (pendingChanges.has(chatId)) {
+      await handleAddressChange(chatId, text);
+      return;
+    }
+
+    // Check if we're waiting for ENS/address from this user (new registration)
+    if (pendingRegistrations.has(chatId)) {
+      await handleIdentifierInput(chatId, text);
     }
   });
 
   console.log('🤖 Telegram bot started successfully');
+}
+
+/**
+ * Handle ENS or address input from user
+ * @param {number} chatId - Telegram chat ID
+ * @param {string} identifier - ENS name or Ethereum address
+ */
+async function handleIdentifierInput(chatId, identifier) {
+  try {
+    if (!identifier || typeof identifier !== 'string') {
+      await bot.sendMessage(
+        chatId,
+        '❌ Invalid input. Please send a valid ENS name or Ethereum address.'
+      );
+      return;
+    }
+
+    const trimmed = identifier.trim();
+    
+    // Check if it's an ENS
+    if (isENS(trimmed)) {
+      console.log(`🔍 Resolving ENS ${trimmed} for chatId ${chatId}`);
+      await bot.sendMessage(chatId, `🔍 Resolving ENS: \`${trimmed}\`...`, { parse_mode: 'Markdown' });
+      
+      const address = await resolveENS(trimmed);
+      
+      if (!address) {
+        await bot.sendMessage(
+          chatId,
+          `❌ Failed to resolve ENS: \`${trimmed}\`\n\n` +
+          `Please check the ENS name and try again, or use your Ethereum address instead.`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      
+      // Save with ENS and resolved address
+      await saveAddress(trimmed, address, chatId);
+      pendingRegistrations.delete(chatId);
+      
+      await bot.sendMessage(
+        chatId,
+        `✅ *Successfully registered!*\n\n` +
+        `ENS: \`${trimmed}\`\n` +
+        `Address: \`${address}\`\n\n` +
+        `Start your node with:\n` +
+        `\`node index.js --tg-alert-ens ${trimmed}\`\n\n` +
+        `You can also use your address:\n` +
+        `\`node index.js --tg-alert-ens ${address}\``,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`✅ Registered ENS ${trimmed} (${address}) for chatId ${chatId}`);
+      
+    } else {
+      // Try to validate as address
+      const normalized = normalizeAddress(trimmed);
+      
+      if (!normalized) {
+        await bot.sendMessage(
+          chatId,
+          `❌ Invalid Ethereum address: \`${trimmed}\`\n\n` +
+          `Please send a valid ENS name or Ethereum address.`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      
+      // Save with just address (no ENS)
+      await saveAddress(null, normalized, chatId);
+      pendingRegistrations.delete(chatId);
+      
+      await bot.sendMessage(
+        chatId,
+        `✅ *Successfully registered!*\n\n` +
+        `Address: \`${normalized}\`\n\n` +
+        `Start your node with:\n` +
+        `\`node index.js --tg-alert-ens ${normalized}\``,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`✅ Registered address ${normalized} for chatId ${chatId}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling identifier input:', error);
+    pendingRegistrations.delete(chatId);
+    await bot.sendMessage(
+      chatId,
+      '❌ Sorry, something went wrong. Please try /start again.'
+    );
+  }
+}
+
+/**
+ * Handle address/ENS change from user
+ * @param {number} chatId - Telegram chat ID
+ * @param {string} identifier - New ENS name or Ethereum address
+ */
+async function handleAddressChange(chatId, identifier) {
+  try {
+    if (!identifier || typeof identifier !== 'string') {
+      await bot.sendMessage(
+        chatId,
+        '❌ Invalid input. Please send a valid ENS name or Ethereum address.'
+      );
+      return;
+    }
+
+    const trimmed = identifier.trim();
+    const oldInfo = pendingChanges.get(chatId);
+    
+    if (!oldInfo) {
+      await bot.sendMessage(
+        chatId,
+        '❌ Session expired. Please use /change again.'
+      );
+      return;
+    }
+
+    // Check if it's an ENS
+    if (isENS(trimmed)) {
+      console.log(`🔍 Resolving new ENS ${trimmed} for chatId ${chatId}`);
+      await bot.sendMessage(chatId, `🔍 Resolving ENS: \`${trimmed}\`...`, { parse_mode: 'Markdown' });
+      
+      const address = await resolveENS(trimmed);
+      
+      if (!address) {
+        await bot.sendMessage(
+          chatId,
+          `❌ Failed to resolve ENS: \`${trimmed}\`\n\n` +
+          `Please check the ENS name and try again, or use your Ethereum address instead.`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      
+      // Delete old registration
+      await deleteAddress(oldInfo.oldAddress);
+      
+      // Save new registration with ENS and resolved address
+      await saveAddress(trimmed, address, chatId);
+      pendingChanges.delete(chatId);
+      
+      await bot.sendMessage(
+        chatId,
+        `✅ *Successfully changed!*\n\n` +
+        `Old: \`${oldInfo.oldEns || oldInfo.oldAddress}\`\n` +
+        `New ENS: \`${trimmed}\`\n` +
+        `New Address: \`${address}\`\n\n` +
+        `Start your node with:\n` +
+        `\`node index.js --tg-alert-ens ${trimmed}\`\n\n` +
+        `You can also use your address:\n` +
+        `\`node index.js --tg-alert-ens ${address}\``,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`✅ Changed from ${oldInfo.oldAddress} to ${trimmed} (${address}) for chatId ${chatId}`);
+      
+    } else {
+      // Try to validate as address
+      const normalized = normalizeAddress(trimmed);
+      
+      if (!normalized) {
+        await bot.sendMessage(
+          chatId,
+          `❌ Invalid Ethereum address: \`${trimmed}\`\n\n` +
+          `Please send a valid ENS name or Ethereum address.`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+      
+      // Delete old registration
+      await deleteAddress(oldInfo.oldAddress);
+      
+      // Save new registration with just address (no ENS)
+      await saveAddress(null, normalized, chatId);
+      pendingChanges.delete(chatId);
+      
+      await bot.sendMessage(
+        chatId,
+        `✅ *Successfully changed!*\n\n` +
+        `Old: \`${oldInfo.oldEns || oldInfo.oldAddress}\`\n` +
+        `New Address: \`${normalized}\`\n\n` +
+        `Start your node with:\n` +
+        `\`node index.js --tg-alert-ens ${normalized}\``,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`✅ Changed from ${oldInfo.oldAddress} to ${normalized} for chatId ${chatId}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling address change:', error);
+    pendingChanges.delete(chatId);
+    await bot.sendMessage(
+      chatId,
+      '❌ Sorry, something went wrong. Please try /change again.'
+    );
+  }
 }
 
 /**
@@ -177,4 +436,3 @@ module.exports = {
   sendAlert,
   stopBot
 };
-

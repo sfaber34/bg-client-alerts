@@ -1,71 +1,93 @@
 const { getDb } = require('./firebase');
 const admin = require('firebase-admin');
+const { ethers } = require('ethers');
+
+// Use a public RPC provider for ENS resolution
+const provider = new ethers.JsonRpcProvider('https://mainnet.rpc.buidlguidl.com');
 
 /**
- * Generate a random 6-character alphanumeric token
- * @returns {string} 6-character token (e.g., "A1B2C3")
+ * Validate and normalize Ethereum address
+ * @param {string} address - Ethereum address
+ * @returns {string|null} Normalized address or null if invalid
  */
-function generateToken() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let token = '';
-  for (let i = 0; i < 6; i++) {
-    token += chars.charAt(Math.floor(Math.random() * chars.length));
+function normalizeAddress(address) {
+  try {
+    return ethers.getAddress(address).toLowerCase();
+  } catch {
+    return null;
   }
-  return token;
 }
 
 /**
- * Generate a unique token that doesn't exist in the database
- * @returns {Promise<string>} Unique 6-character token
+ * Check if string is an ENS name
+ * @param {string} identifier - ENS or address
+ * @returns {boolean} True if it looks like an ENS name
  */
-async function generateUniqueToken() {
-  const db = getDb();
-  let token;
-  let exists = true;
-
-  // Keep generating until we find a unique token
-  // With 36^6 = 2.1B combinations, collisions are extremely rare
-  let attempts = 0;
-  const maxAttempts = 10;
-
-  while (exists && attempts < maxAttempts) {
-    token = generateToken();
-    const snapshot = await db.collection('bgClientAlertTokens').where('token', '==', token).get();
-    exists = !snapshot.empty;
-    attempts++;
-  }
-
-  if (exists) {
-    throw new Error('Failed to generate unique token after ' + maxAttempts + ' attempts');
-  }
-
-  return token;
+function isENS(identifier) {
+  return typeof identifier === 'string' && identifier.includes('.');
 }
 
 /**
- * Save token and chatId to Firebase
- * @param {string} token - 6-character token
+ * Resolve ENS to address
+ * @param {string} ens - ENS name (e.g., "vitalik.eth")
+ * @returns {Promise<string|null>} Resolved address or null if failed
+ */
+async function resolveENS(ens) {
+  try {
+    const address = await provider.resolveName(ens);
+    if (address) {
+      return address.toLowerCase();
+    }
+    return null;
+  } catch (error) {
+    console.error(`Failed to resolve ENS ${ens}:`, error.message);
+    return null;
+  }
+}
+
+/**
+ * Save ENS/address and chatId to Firebase
+ * @param {string} ens - ENS name (can be null if user provided address)
+ * @param {string} address - Ethereum address (normalized, lowercase)
  * @param {number} chatId - Telegram chat ID
  * @returns {Promise<void>}
  */
-async function saveToken(token, chatId) {
+async function saveAddress(ens, address, chatId) {
   const db = getDb();
-  await db.collection('bgClientAlertTokens').doc(token).set({
-    token,
+  await db.collection('bgClientAlertAddresses').doc(address).set({
+    ens: ens || null,
+    address,
     chatId,
     createdAt: admin.firestore.FieldValue.serverTimestamp()
   });
-  console.log(`💾 Token ${token} saved for chatId ${chatId}`);
+  console.log(`💾 Address ${address} saved for chatId ${chatId}${ens ? ` (ENS: ${ens})` : ''}`);
 }
 
 /**
- * Get chatId by token
- * @param {string} token - 6-character token
+ * Get chatId by ENS or address
+ * @param {string} identifier - ENS name or Ethereum address
  * @returns {Promise<number|null>} Chat ID or null if not found
  */
-async function getChatIdByToken(token) {
+async function getChatIdByIdentifier(identifier) {
   const db = getDb();
-  const doc = await db.collection('bgClientAlertTokens').doc(token).get();
+  
+  // If it's an ENS, resolve it first
+  if (isENS(identifier)) {
+    const address = await resolveENS(identifier);
+    if (!address) {
+      return null;
+    }
+    identifier = address;
+  } else {
+    // Normalize address
+    identifier = normalizeAddress(identifier);
+    if (!identifier) {
+      return null;
+    }
+  }
+  
+  // Look up by address (document ID)
+  const doc = await db.collection('bgClientAlertAddresses').doc(identifier).get();
   
   if (!doc.exists) {
     return null;
@@ -75,28 +97,55 @@ async function getChatIdByToken(token) {
 }
 
 /**
- * Get token by chatId
+ * Get address info by chatId
  * @param {number} chatId - Telegram chat ID
- * @returns {Promise<string|null>} Token or null if not found
+ * @returns {Promise<object|null>} Address info (with document ID) or null if not found
  */
-async function getTokenByChatId(chatId) {
+async function getAddressByChatId(chatId) {
   const db = getDb();
-  const snapshot = await db.collection('bgClientAlertTokens').where('chatId', '==', chatId).limit(1).get();
+  const snapshot = await db.collection('bgClientAlertAddresses').where('chatId', '==', chatId).limit(1).get();
   
   if (snapshot.empty) {
     return null;
   }
   
-  return snapshot.docs[0].data().token;
+  const doc = snapshot.docs[0];
+  const data = doc.data();
+  return {
+    ens: data.ens,
+    address: data.address,
+    docId: doc.id  // Include document ID for deletion
+  };
 }
 
 /**
- * Validate token format (6 uppercase alphanumeric characters)
- * @param {string} token - Token to validate
+ * Delete address registration by document ID (address)
+ * @param {string} address - Ethereum address (document ID)
+ * @returns {Promise<void>}
+ */
+async function deleteAddress(address) {
+  const db = getDb();
+  await db.collection('bgClientAlertAddresses').doc(address).delete();
+  console.log(`🗑️  Deleted address ${address} from Firebase`);
+}
+
+/**
+ * Validate identifier (ENS or address)
+ * @param {string} identifier - ENS name or Ethereum address
  * @returns {boolean} True if valid format
  */
-function isValidTokenFormat(token) {
-  return typeof token === 'string' && /^[A-Z0-9]{6}$/.test(token);
+function isValidIdentifier(identifier) {
+  if (!identifier || typeof identifier !== 'string') {
+    return false;
+  }
+  
+  // Check if it's an ENS name (contains a dot)
+  if (isENS(identifier)) {
+    return identifier.length > 3; // Basic ENS validation
+  }
+  
+  // Check if it's a valid Ethereum address
+  return normalizeAddress(identifier) !== null;
 }
 
 /**
@@ -116,12 +165,13 @@ function getUTCTimestamp() {
 }
 
 module.exports = {
-  generateToken,
-  generateUniqueToken,
-  saveToken,
-  getChatIdByToken,
-  getTokenByChatId,
-  isValidTokenFormat,
+  normalizeAddress,
+  isENS,
+  resolveENS,
+  saveAddress,
+  getChatIdByIdentifier,
+  getAddressByChatId,
+  deleteAddress,
+  isValidIdentifier,
   getUTCTimestamp
 };
-

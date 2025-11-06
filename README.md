@@ -1,13 +1,14 @@
 # BuidlGuidl Telegram Alert Service
 
-A Node.js backend service that enables buidlguidl-client users to receive Telegram alerts when their Ethereum clients (Reth/Lighthouse) crash.
+A Node.js backend service that enables buidlguidl-client users to receive Telegram alerts when their Ethereum clients (Reth/Lighthouse) crash. Users register with their ENS name or Ethereum address.
 
 ## 🎯 Features
 
-- **Telegram Bot Interface** - Simple bot commands for token management
+- **Telegram Bot Interface** - Register with ENS or Ethereum address
+- **ENS Resolution** - Automatic ENS to address resolution
 - **REST API** - Receive alerts from buidlguidl-client
-- **Firebase Firestore** - Persistent token storage
-- **Rate Limiting** - 100 alerts per day per token
+- **Firebase Firestore** - Persistent address storage
+- **Rate Limiting** - 100 alerts per day per identifier
 - **Graceful Shutdown** - Proper cleanup on SIGINT/SIGTERM
 - **Error Handling** - Comprehensive error handling throughout
 
@@ -72,9 +73,10 @@ Required variables:
 
 In Firebase Console → Firestore Database → Indexes, create these indexes:
 
-**Collection: `bgClientAlertTokens`**
-- Index on `token` (Ascending)
+**Collection: `bgClientAlertAddresses`**
 - Index on `chatId` (Ascending)
+- Index on `ens` (Ascending) - for ENS lookups
+- Index on `address` (Ascending) - for address lookups
 
 ### 6. Verify Setup
 
@@ -99,20 +101,38 @@ You should see:
 
 ### For End Users
 
-1. **Open Telegram** and search for your bot (`@BG_Client_Alert_Bot`)
+1. **Open Telegram** and search for the bot (`@BG_Client_Alert_Bot`)
 2. **Send `/start`** command
-3. **Receive your token** (e.g., `XYZ789`)
-4. **Start your node** with the token:
+3. **Bot asks for your ENS or address** - send it (e.g., `vitalik.eth` or `0x1234...`)
+4. **Bot confirms registration** and shows your identifier
+5. **Start your node** with your identifier:
    ```bash
-   node index.js --tg-alert-token XYZ789
+   node index.js --tg-alert-ens vitalik.eth
    ```
-5. **Receive alerts** when your clients crash!
+   or
+   ```bash
+   node index.js --tg-alert-ens 0x1234...abcd
+   ```
+6. **Receive alerts** when your clients crash!
 
 ### Bot Commands
 
-- `/start` - Generate your unique token (or show existing one)
-- `/showToken` - Display your current token
+- `/start` - Register your ENS or Ethereum address
+- `/show` - Display your registered identifier
+- `/change` - Change your registered identifier (removes old registration)
 - `/help` - Show help message with setup instructions
+
+### Changing Your Registered Identifier
+
+If you want to change your registered ENS or address:
+
+1. Send `/change` to the bot
+2. Bot shows your current identifier
+3. Send your new ENS or address
+4. Bot deletes old registration and saves new one
+5. Update your node with the new identifier
+
+**Note:** Your old registration is automatically removed when you confirm the new one.
 
 ## 🔌 API Endpoints
 
@@ -136,11 +156,13 @@ POST https://stage.rpc.buidlguidl.com:3000/api/alert
 Content-Type: application/json
 
 {
-  "token": "ABC123",
+  "ens": "vitalik.eth",
   "message": "Reth client exited with code 1",
   "alertType": "RETH CRASH"
 }
 ```
+
+Note: The `ens` field can contain either an ENS name or an Ethereum address.
 
 Success Response (200):
 ```json
@@ -153,15 +175,15 @@ Success Response (200):
 Error Response (404):
 ```json
 {
-  "error": "Token not found",
-  "details": "This token is not registered. Use /start in Telegram to generate a token."
+  "error": "Identifier not found",
+  "details": "This ENS/address is not registered. Use /start in Telegram to register."
 }
 ```
 
 Error Response (429 - Rate Limited):
 ```json
 {
-  "error": "Too many alerts from this token. Maximum 100 alerts per day."
+  "error": "Too many alerts from this identifier. Maximum 100 alerts per day."
 }
 ```
 
@@ -193,35 +215,40 @@ bg-client-alerts/
 
 ## 🗄️ Firebase Schema
 
-### Collection: `bgClientAlertTokens`
+### Collection: `bgClientAlertAddresses`
+
+Document ID: Ethereum address (lowercase)
 
 ```json
 {
-  "token": "ABC123",
+  "ens": "vitalik.eth",
+  "address": "0x1234...abcd",
   "chatId": 123456789,
-  "createdAt": "2025-11-04T15:30:45.123Z"
+  "createdAt": "2025-11-06T15:30:45.123Z"
 }
 ```
 
-- `token` (string) - 6-character alphanumeric token
+- `ens` (string | null) - ENS name (null if user registered with address only)
+- `address` (string) - Ethereum address (normalized, lowercase)
 - `chatId` (number) - Telegram chat ID
-- `createdAt` (timestamp) - When the token was created
+- `createdAt` (timestamp) - When the registration was created
 
 ## 🔒 Security Features
 
 - All sensitive data stored in `.env` and `firebase-service-account.json` (both git-ignored)
 - Firebase credentials never exposed in environment variables
-- Token validation (format and existence)
-- Rate limiting (100 alerts per day per token)
+- ENS/address validation (format and existence)
+- Rate limiting (100 alerts per day per identifier)
 - Input validation on all endpoints
 - Message length limits (1000 chars)
 - No hardcoded secrets
+- ENS names and addresses are public (spam risk trade-off for convenience)
 
 ## 🚨 Rate Limiting
 
 To prevent spam and abuse:
-- **100 alerts per day** per token
-- Tracked by token value
+- **100 alerts per day** per ENS/address
+- Tracked by identifier value
 - Returns 429 status when exceeded
 - Window resets after 24 hours
 
@@ -241,10 +268,11 @@ All alerts are sent as plain text with a timestamp:
 
 ### Alerts not being sent
 
-1. Verify token exists: `/showToken` in Telegram
+1. Verify identifier is registered: `/show` in Telegram
 2. Check API endpoint is accessible: `curl http://localhost:3000/health`
 3. Check rate limiting (max 100/day)
-4. Check logs for error messages
+4. If using ENS, verify it resolves correctly
+5. Check logs for error messages
 
 ### Firebase errors
 
@@ -424,7 +452,7 @@ curl http://localhost:3000/health
 curl -X POST http://localhost:3000/api/alert \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "YOUR_TOKEN",
+    "ens": "your-ens.eth",
     "message": "Test alert from curl",
     "alertType": "TEST ALERT"
   }'
@@ -433,7 +461,7 @@ curl -X POST http://localhost:3000/api/alert \
 curl -X POST https://stage.rpc.buidlguidl.com:3000/api/alert \
   -H "Content-Type: application/json" \
   -d '{
-    "token": "YOUR_TOKEN",
+    "ens": "your-ens.eth",
     "message": "Test alert from production",
     "alertType": "TEST ALERT"
   }'
@@ -464,10 +492,10 @@ yarn dev
 ### Code Structure
 
 - `alerts.js` - Entry point with env validation and startup logic
-- `bot.js` - Telegram bot with command handlers
+- `bot.js` - Telegram bot with command handlers (conversational flow)
 - `api.js` - Express server with endpoints
 - `firebase.js` - Firebase initialization
-- `utils.js` - Helper functions (token generation, lookups, validation)
+- `utils.js` - Helper functions (ENS resolution, address validation, lookups)
 
 ## 🤝 Integration with buidlguidl-client
 
@@ -478,10 +506,10 @@ const axios = require('axios');
 
 const ALERT_API_URL = 'https://stage.rpc.buidlguidl.com:3000/api/alert';
 
-async function sendAlert(token, message, alertType) {
+async function sendAlert(ensOrAddress, message, alertType) {
   try {
     const response = await axios.post(ALERT_API_URL, {
-      token,
+      ens: ensOrAddress,  // Can be ENS name or Ethereum address
       message,
       alertType
     });
@@ -492,7 +520,11 @@ async function sendAlert(token, message, alertType) {
 }
 
 // Example usage when a crash occurs
-sendAlert('ABC123', 'Reth client exited with code 1', 'RETH CRASH');
+// With ENS:
+sendAlert('vitalik.eth', 'Reth client exited with code 1', 'RETH CRASH');
+
+// Or with address:
+sendAlert('0x1234...abcd', 'Reth client exited with code 1', 'RETH CRASH');
 ```
 
 ## 📄 License
@@ -509,10 +541,12 @@ For issues or questions:
 
 ## 🎉 Success Criteria Checklist
 
-- ✅ Bot responds to `/start`, `/showToken`, `/help`
-- ✅ Tokens stored in Firebase and retrievable
+- ✅ Bot responds to `/start`, `/show`, `/help`
+- ✅ ENS names are resolved to addresses
+- ✅ Both ENS and addresses work for alerts
+- ✅ Address mappings stored in Firebase and retrievable
 - ✅ API endpoint receives alerts and sends Telegram messages
-- ✅ Invalid tokens return 404 error
+- ✅ Unregistered identifiers return 404 error
 - ✅ Rate limiting prevents spam (100/day)
 - ✅ Service validates `.env` on startup
 - ✅ Graceful error handling throughout

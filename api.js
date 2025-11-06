@@ -1,7 +1,9 @@
 const express = require('express');
+const https = require('https');
+const fs = require('fs');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-const { getChatIdByToken, isValidTokenFormat } = require('./utils');
+const { getChatIdByIdentifier, isValidIdentifier } = require('./utils');
 const { sendAlert } = require('./bot');
 
 /**
@@ -16,16 +18,16 @@ function createAPI(port) {
   app.use(cors());
   app.use(express.json());
 
-  // Rate limiting: 100 requests per day per token
+  // Rate limiting: 100 requests per day per identifier
   const alertLimiter = rateLimit({
     windowMs: 24 * 60 * 60 * 1000, // 24 hours (1 day)
     max: 100, // 100 requests per day
     keyGenerator: (req) => {
-      // Use token from request body for rate limiting
-      return req.body.token || req.ip;
+      // Use ens from request body for rate limiting
+      return req.body.ens || req.ip;
     },
     message: {
-      error: 'Too many alerts from this token. Maximum 100 alerts per day.'
+      error: 'Too many alerts from this identifier. Maximum 100 alerts per day.'
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -39,21 +41,21 @@ function createAPI(port) {
   // Alert endpoint
   app.post('/api/alert', alertLimiter, async (req, res) => {
     try {
-      const { token, message, alertType } = req.body;
+      const { ens, message, alertType } = req.body;
 
       // Validate required fields
-      if (!token || !message || !alertType) {
+      if (!ens || !message || !alertType) {
         return res.status(400).json({
           error: 'Missing required fields',
-          required: ['token', 'message', 'alertType']
+          required: ['ens', 'message', 'alertType']
         });
       }
 
-      // Validate token format
-      if (!isValidTokenFormat(token)) {
+      // Validate identifier format
+      if (!isValidIdentifier(ens)) {
         return res.status(400).json({
-          error: 'Invalid token format',
-          details: 'Token must be 6 uppercase alphanumeric characters'
+          error: 'Invalid identifier format',
+          details: 'Must be a valid ENS name or Ethereum address'
         });
       }
 
@@ -73,21 +75,21 @@ function createAPI(port) {
         });
       }
 
-      // Look up chatId from token
-      const chatId = await getChatIdByToken(token);
+      // Look up chatId from ENS or address
+      const chatId = await getChatIdByIdentifier(ens);
 
       if (!chatId) {
-        console.log(`⚠️  Alert attempt with invalid token: ${token}`);
+        console.log(`⚠️  Alert attempt with unregistered identifier: ${ens}`);
         return res.status(404).json({
-          error: 'Token not found',
-          details: 'This token is not registered. Use /start in Telegram to generate a token.'
+          error: 'Identifier not found',
+          details: 'This ENS/address is not registered. Use /start in Telegram to register.'
         });
       }
 
       // Send alert via Telegram
       await sendAlert(chatId, alertType, message);
 
-      console.log(`✅ Alert sent successfully for token ${token}`);
+      console.log(`✅ Alert sent successfully for identifier ${ens}`);
       res.json({
         success: true,
         message: 'Alert sent successfully'
@@ -110,9 +112,17 @@ function createAPI(port) {
     });
   });
 
-  // Start server
-  const server = app.listen(port, () => {
-    console.log(`🚀 API server listening on port ${port}`);
+  // Create HTTPS server with SSL certificates
+  const server = https.createServer(
+    {
+      key: fs.readFileSync("/home/ubuntu/shared/server.key"),
+      cert: fs.readFileSync("/home/ubuntu/shared/server.cert"),
+    },
+    app
+  );
+
+  server.listen(port, () => {
+    console.log(`🚀 HTTPS API server listening on port ${port}`);
   });
 
   return { app, server };
@@ -121,4 +131,3 @@ function createAPI(port) {
 module.exports = {
   createAPI
 };
-
