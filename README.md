@@ -7,7 +7,7 @@ A Node.js backend service that enables buidlguidl-client users to receive Telegr
 - **Telegram Bot Interface** - Simple bot commands for token management
 - **REST API** - Receive alerts from buidlguidl-client
 - **Firebase Firestore** - Persistent token storage
-- **Rate Limiting** - 20 alerts per hour per token
+- **Rate Limiting** - 100 alerts per day per token
 - **Graceful Shutdown** - Proper cleanup on SIGINT/SIGTERM
 - **Error Handling** - Comprehensive error handling throughout
 
@@ -132,7 +132,7 @@ Response:
 ### Send Alert
 
 ```bash
-POST /api/alert
+POST https://stage.rpc.buidlguidl.com:3000/api/alert
 Content-Type: application/json
 
 {
@@ -161,7 +161,7 @@ Error Response (404):
 Error Response (429 - Rate Limited):
 ```json
 {
-  "error": "Too many alerts from this token. Maximum 20 alerts per hour."
+  "error": "Too many alerts from this token. Maximum 100 alerts per day."
 }
 ```
 
@@ -170,11 +170,9 @@ Error Response (429 - Rate Limited):
 Telegram messages are formatted like this:
 
 ```
-🔴 RETH CRASH
-
 Reth client exited with code 1
 
-Time: 2025-11-04 15:30:45 UTC
+Time: 2025-11-06 18:30:45 UTC
 ```
 
 ## 🏗️ Project Structure
@@ -214,7 +212,7 @@ bg-client-alerts/
 - All sensitive data stored in `.env` and `firebase-service-account.json` (both git-ignored)
 - Firebase credentials never exposed in environment variables
 - Token validation (format and existence)
-- Rate limiting (20 alerts per hour per token)
+- Rate limiting (100 alerts per day per token)
 - Input validation on all endpoints
 - Message length limits (1000 chars)
 - No hardcoded secrets
@@ -222,17 +220,16 @@ bg-client-alerts/
 ## 🚨 Rate Limiting
 
 To prevent spam and abuse:
-- **20 alerts per hour** per token
+- **100 alerts per day** per token
 - Tracked by token value
 - Returns 429 status when exceeded
-- Window resets after 1 hour
+- Window resets after 24 hours
 
-## 🎨 Alert Types & Emojis
+## 📝 Alert Format
 
-- 🔴 Crash alerts (contains "crash")
-- ⚠️  Warning alerts (contains "warning")
-- ℹ️  Info alerts (contains "info")
-- ⚠️  Custom alerts (default)
+All alerts are sent as plain text with a timestamp:
+- Your custom message
+- Automatic UTC timestamp appended
 
 ## 🐛 Troubleshooting
 
@@ -246,7 +243,7 @@ To prevent spam and abuse:
 
 1. Verify token exists: `/showToken` in Telegram
 2. Check API endpoint is accessible: `curl http://localhost:3000/health`
-3. Check rate limiting (max 20/hour)
+3. Check rate limiting (max 100/day)
 4. Check logs for error messages
 
 ### Firebase errors
@@ -355,13 +352,17 @@ sudo systemctl start buidlguidl-alerts
 sudo systemctl status buidlguidl-alerts
 ```
 
-### 6. Setup Firewall
+### 6. Setup Firewall and Security Group
 
+**AWS Security Group:**
+- Add inbound rule: Custom TCP, Port 3000, Source: 0.0.0.0/0 (or restrict to specific IPs)
+
+**UFW Firewall:**
 ```bash
-# Allow HTTP (if needed)
+# Allow port 3000 for alerts API
 sudo ufw allow 3000/tcp
 
-# Or use nginx as reverse proxy (recommended)
+# Also allow standard ports if not already done
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 ```
@@ -419,11 +420,21 @@ curl http://localhost:3000/health
 ### Test Alert Endpoint
 
 ```bash
+# Local testing
 curl -X POST http://localhost:3000/api/alert \
   -H "Content-Type: application/json" \
   -d '{
     "token": "YOUR_TOKEN",
     "message": "Test alert from curl",
+    "alertType": "TEST ALERT"
+  }'
+
+# Production testing
+curl -X POST https://stage.rpc.buidlguidl.com:3000/api/alert \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "YOUR_TOKEN",
+    "message": "Test alert from production",
     "alertType": "TEST ALERT"
   }'
 ```
@@ -465,20 +476,22 @@ Your client application should send alerts like this:
 ```javascript
 const axios = require('axios');
 
+const ALERT_API_URL = 'https://stage.rpc.buidlguidl.com:3000/api/alert';
+
 async function sendAlert(token, message, alertType) {
   try {
-    const response = await axios.post('http://your-server:3000/api/alert', {
+    const response = await axios.post(ALERT_API_URL, {
       token,
       message,
       alertType
     });
-    console.log('Alert sent:', response.data);
+    console.log('✅ Telegram alert sent:', response.data);
   } catch (error) {
-    console.error('Failed to send alert:', error.message);
+    console.error('❌ Failed to send Telegram alert:', error.message);
   }
 }
 
-// Example usage
+// Example usage when a crash occurs
 sendAlert('ABC123', 'Reth client exited with code 1', 'RETH CRASH');
 ```
 
@@ -500,7 +513,7 @@ For issues or questions:
 - ✅ Tokens stored in Firebase and retrievable
 - ✅ API endpoint receives alerts and sends Telegram messages
 - ✅ Invalid tokens return 404 error
-- ✅ Rate limiting prevents spam (20/hour)
+- ✅ Rate limiting prevents spam (100/day)
 - ✅ Service validates `.env` on startup
 - ✅ Graceful error handling throughout
 - ✅ Graceful shutdown on SIGINT/SIGTERM

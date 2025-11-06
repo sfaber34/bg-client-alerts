@@ -16,16 +16,16 @@ function createAPI(port) {
   app.use(cors());
   app.use(express.json());
 
-  // Rate limiting: 20 requests per hour per token
+  // Rate limiting: 100 requests per day per token
   const alertLimiter = rateLimit({
-    windowMs: 60 * 60 * 1000, // 1 hour
-    max: 20, // 20 requests per hour
+    windowMs: 24 * 60 * 60 * 1000, // 24 hours (1 day)
+    max: 100, // 100 requests per day
     keyGenerator: (req) => {
       // Use token from request body for rate limiting
       return req.body.token || req.ip;
     },
     message: {
-      error: 'Too many alerts from this token. Maximum 20 alerts per hour.'
+      error: 'Too many alerts from this token. Maximum 100 alerts per day.'
     },
     standardHeaders: true,
     legacyHeaders: false,

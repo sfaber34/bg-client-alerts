@@ -108,12 +108,7 @@ function initializeBot(botToken) {
         `1️⃣ Use /start to get your token\n` +
         `2️⃣ Start your node with the token:\n` +
         `   \`node index.js --tg-alert-token YOUR_TOKEN\`\n` +
-        `3️⃣ You'll receive alerts when your clients crash\n\n` +
-        `*Alert Types:*\n` +
-        `🔴 RETH CRASH - Reth client crashed\n` +
-        `🔴 LIGHTHOUSE CRASH - Lighthouse client crashed\n` +
-        `⚠️  CUSTOM ALERT - Other important events\n\n` +
-        `Need more help? Check the documentation.`,
+        `3️⃣ You'll receive alerts when your clients crash`,
         { parse_mode: 'Markdown' }
       );
     } catch (error) {
@@ -159,18 +154,7 @@ async function sendAlert(chatId, alertType, message) {
 
   const timestamp = require('./utils').getUTCTimestamp();
   
-  // Determine emoji based on alert type
-  let emoji = '⚠️';
-  if (alertType.toLowerCase().includes('crash')) {
-    emoji = '🔴';
-  } else if (alertType.toLowerCase().includes('warning')) {
-    emoji = '⚠️';
-  } else if (alertType.toLowerCase().includes('info')) {
-    emoji = 'ℹ️';
-  }
-
   const formattedMessage = 
-    `${emoji} *${alertType.toUpperCase()}*\n\n` +
     `${message}\n\n` +
     `Time: ${timestamp}`;
 
