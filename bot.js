@@ -26,7 +26,7 @@ function initializeBot(botToken) {
           `✅ *Welcome back!*\n\n` +
           `Your token: \`${token}\`\n\n` +
           `To use it, start your node with:\n` +
-          `\`node alerts.js --telegram-token ${token}\`\n\n` +
+          `\`node index.js --tg-alert-token ${token}\`\n\n` +
           `Use /help for more commands.`,
           { parse_mode: 'Markdown' }
         );
@@ -41,7 +41,7 @@ function initializeBot(botToken) {
           `🎉 *Welcome to BuidlGuidl Alert Bot!*\n\n` +
           `Your unique token: \`${token}\`\n\n` +
           `To receive alerts, start your node with:\n` +
-          `\`node alerts.js --telegram-token ${token}\`\n\n` +
+          `\`node index.js --tg-alert-token ${token}\`\n\n` +
           `Use /help for more commands.`,
           { parse_mode: 'Markdown' }
         );
@@ -70,7 +70,7 @@ function initializeBot(botToken) {
           `🔑 *Your Token*\n\n` +
           `\`${token}\`\n\n` +
           `Use this token when starting your node:\n` +
-          `\`node alerts.js --telegram-token ${token}\``,
+          `\`node index.js --tg-alert-token ${token}\``,
           { parse_mode: 'Markdown' }
         );
         console.log(`🔑 Showed token ${token} to chatId ${chatId}`);
@@ -107,7 +107,7 @@ function initializeBot(botToken) {
         `*Setup Instructions:*\n` +
         `1️⃣ Use /start to get your token\n` +
         `2️⃣ Start your node with the token:\n` +
-        `   \`node alerts.js --telegram-token YOUR_TOKEN\`\n` +
+        `   \`node index.js --tg-alert-token YOUR_TOKEN\`\n` +
         `3️⃣ You'll receive alerts when your clients crash\n\n` +
         `*Alert Types:*\n` +
         `🔴 RETH CRASH - Reth client crashed\n` +

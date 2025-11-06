@@ -1,4 +1,5 @@
 const { getDb } = require('./firebase');
+const admin = require('firebase-admin');
 
 /**
  * Generate a random 6-character alphanumeric token
@@ -29,7 +30,7 @@ async function generateUniqueToken() {
 
   while (exists && attempts < maxAttempts) {
     token = generateToken();
-    const snapshot = await db.collection('tokens').where('token', '==', token).get();
+    const snapshot = await db.collection('bgClientAlertTokens').where('token', '==', token).get();
     exists = !snapshot.empty;
     attempts++;
   }
@@ -49,7 +50,7 @@ async function generateUniqueToken() {
  */
 async function saveToken(token, chatId) {
   const db = getDb();
-  await db.collection('tokens').doc(token).set({
+  await db.collection('bgClientAlertTokens').doc(token).set({
     token,
     chatId,
     createdAt: admin.firestore.FieldValue.serverTimestamp()
@@ -64,7 +65,7 @@ async function saveToken(token, chatId) {
  */
 async function getChatIdByToken(token) {
   const db = getDb();
-  const doc = await db.collection('tokens').doc(token).get();
+  const doc = await db.collection('bgClientAlertTokens').doc(token).get();
   
   if (!doc.exists) {
     return null;
@@ -80,7 +81,7 @@ async function getChatIdByToken(token) {
  */
 async function getTokenByChatId(chatId) {
   const db = getDb();
-  const snapshot = await db.collection('tokens').where('chatId', '==', chatId).limit(1).get();
+  const snapshot = await db.collection('bgClientAlertTokens').where('chatId', '==', chatId).limit(1).get();
   
   if (snapshot.empty) {
     return null;

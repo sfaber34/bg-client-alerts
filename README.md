@@ -72,7 +72,7 @@ Required variables:
 
 In Firebase Console → Firestore Database → Indexes, create these indexes:
 
-**Collection: `tokens`**
+**Collection: `bgClientAlertTokens`**
 - Index on `token` (Ascending)
 - Index on `chatId` (Ascending)
 
@@ -99,12 +99,12 @@ You should see:
 
 ### For End Users
 
-1. **Open Telegram** and search for your bot (e.g., `@BuidlGuidlAlertBot`)
+1. **Open Telegram** and search for your bot (`@BG_Client_Alert_Bot`)
 2. **Send `/start`** command
 3. **Receive your token** (e.g., `XYZ789`)
 4. **Start your node** with the token:
    ```bash
-   node alerts.js --telegram-token XYZ789
+   node index.js --tg-alert-token XYZ789
    ```
 5. **Receive alerts** when your clients crash!
 
@@ -195,7 +195,7 @@ bg-client-alerts/
 
 ## 🗄️ Firebase Schema
 
-### Collection: `tokens`
+### Collection: `bgClientAlertTokens`
 
 ```json
 {
