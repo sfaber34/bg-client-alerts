@@ -120,6 +120,7 @@ You should see:
 - `/start` - Register your ENS or Ethereum address
 - `/show` - Display your registered identifier
 - `/change` - Change your registered identifier (removes old registration)
+- `/stop` - Delete your data and opt-out of alert service (requires confirmation)
 - `/help` - Show help message with setup instructions
 
 ### Changing Your Registered Identifier
@@ -133,6 +134,18 @@ If you want to change your registered ENS or address:
 5. Update your node with the new identifier
 
 **Note:** Your old registration is automatically removed when you confirm the new one.
+
+### Opting Out of the Service
+
+If you want to stop receiving alerts and delete your data:
+
+1. Send `/stop` to the bot
+2. Bot shows your current identifier and explains the action
+3. Type `y` or `yes` to confirm deletion (anything else cancels)
+4. Bot permanently deletes your registration from Firebase
+5. You can re-register anytime with `/start`
+
+**Note:** This action is permanent and cannot be undone.
 
 ## 🔌 API Endpoints
 

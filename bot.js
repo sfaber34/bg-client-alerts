@@ -9,6 +9,9 @@ const pendingRegistrations = new Map();
 // Store pending address changes (chatId -> { oldAddress, oldEns })
 const pendingChanges = new Map();
 
+// Store pending deletions (chatId -> { address, ens })
+const pendingDeletions = new Map();
+
 /**
  * Initialize and start the Telegram bot
  * @param {string} botToken - Telegram bot token
@@ -140,6 +143,51 @@ function initializeBot(botToken) {
     }
   });
 
+  // /stop command - Delete user data (requires confirmation)
+  bot.onText(/\/stop/, async (msg) => {
+    const chatId = msg.chat.id;
+    console.log(`📱 /stop command received from chatId ${chatId}`);
+
+    try {
+      const addressInfo = await getAddressByChatId(chatId);
+
+      if (!addressInfo) {
+        await bot.sendMessage(
+          chatId,
+          `❌ You haven't registered yet.\n\n` +
+          `There's no data to delete.`
+        );
+        return;
+      }
+
+      const currentIdentifier = addressInfo.ens || addressInfo.address;
+      
+      // Store address info for deletion
+      pendingDeletions.set(chatId, {
+        address: addressInfo.docId,
+        ens: addressInfo.ens
+      });
+
+      await bot.sendMessage(
+        chatId,
+        `⚠️ *Stop Alert Service*\n\n` +
+        `You are about to be opted-out of the Telegram alert service.\n\n` +
+        `Your registered identifier: \`${currentIdentifier}\`\n\n` +
+        `You will no longer receive alerts.\n\n` +
+        `To confirm, please type: \`y\` or \`yes\`\n` +
+        `To cancel, type anything else or use /start`,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`⏳ Waiting for deletion confirmation from chatId ${chatId}`);
+    } catch (error) {
+      console.error('❌ Error in /stop command:', error);
+      await bot.sendMessage(
+        chatId,
+        '❌ Sorry, something went wrong. Please try again later.'
+      );
+    }
+  });
+
   // /help command - Show available commands
   bot.onText(/\/help/, async (msg) => {
     const chatId = msg.chat.id;
@@ -153,6 +201,7 @@ function initializeBot(botToken) {
         `/start - Register your ENS or Ethereum address\n` +
         `/show - Display your registered identifier\n` +
         `/change - Change your registered identifier\n` +
+        `/stop - Delete your data and opt-out of alerts\n` +
         `/help - Show this help message\n\n` +
         `*Setup Instructions:*\n` +
         `1️⃣ Use /start and provide your ENS or address\n` +
@@ -177,13 +226,19 @@ function initializeBot(botToken) {
 
     // Ignore if it's a command
     if (text && text.startsWith('/')) {
-      const knownCommands = ['/start', '/show', '/change', '/help'];
+      const knownCommands = ['/start', '/show', '/change', '/stop', '/help'];
       if (!knownCommands.some(cmd => text.startsWith(cmd))) {
         await bot.sendMessage(
           chatId,
           `❓ Unknown command. Use /help to see available commands.`
         );
       }
+      return;
+    }
+
+    // Check if we're waiting for deletion confirmation
+    if (pendingDeletions.has(chatId)) {
+      await handleDeletionConfirmation(chatId, text);
       return;
     }
 
@@ -395,6 +450,62 @@ async function handleAddressChange(chatId, identifier) {
     await bot.sendMessage(
       chatId,
       '❌ Sorry, something went wrong. Please try /change again.'
+    );
+  }
+}
+
+/**
+ * Handle deletion confirmation from user
+ * @param {number} chatId - Telegram chat ID
+ * @param {string} response - User's response
+ */
+async function handleDeletionConfirmation(chatId, response) {
+  try {
+    const deletionInfo = pendingDeletions.get(chatId);
+    
+    if (!deletionInfo) {
+      await bot.sendMessage(
+        chatId,
+        '❌ Session expired. Please use /stop again if you want to delete your data.'
+      );
+      return;
+    }
+
+    const normalizedResponse = response.trim().toLowerCase();
+    
+    if (normalizedResponse === 'y' || normalizedResponse === 'yes') {
+      // User confirmed - delete the data
+      await deleteAddress(deletionInfo.address);
+      pendingDeletions.delete(chatId);
+      
+      const identifier = deletionInfo.ens || deletionInfo.address;
+      
+      await bot.sendMessage(
+        chatId,
+        `✅ *Successfully Opted Out*\n\n` +
+        `Your registration has been deleted: \`${identifier}\`\n\n` +
+        `You will no longer receive alerts. If you change your mind, use /start to register again.`,
+        { parse_mode: 'Markdown' }
+      );
+      console.log(`🗑️  Deleted registration ${identifier} for chatId ${chatId}`);
+    } else {
+      // User cancelled
+      pendingDeletions.delete(chatId);
+      
+      await bot.sendMessage(
+        chatId,
+        `✅ *Deletion Cancelled*\n\n` +
+        `Your registration is still active. You will continue to receive alerts.`
+      );
+      console.log(`❌ Deletion cancelled by chatId ${chatId}`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling deletion confirmation:', error);
+    pendingDeletions.delete(chatId);
+    await bot.sendMessage(
+      chatId,
+      '❌ Sorry, something went wrong. Please try /stop again.'
     );
   }
 }
