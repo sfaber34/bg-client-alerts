@@ -36,7 +36,7 @@ function initializeBot(botToken) {
           `✅ *Welcome back!*\n\n` +
           `Your registered identifier: \`${identifier}\`\n\n` +
           `To use it, start your node with:\n` +
-          `\`node index.js --tg-alert-ens ${identifier}\`\n\n` +
+          `\`node index.js --owner ${identifier}\`\n\n` +
           `Use /help for more commands.`,
           { parse_mode: 'Markdown' }
         );
@@ -46,7 +46,7 @@ function initializeBot(botToken) {
         pendingRegistrations.set(chatId, true);
         await bot.sendMessage(
           chatId,
-          `🎉 *Welcome to BuidlGuidl Alert Bot!*\n\n` +
+          `🎉 *Welcome to BuidlGuidl Client Alert Bot!*\n\n` +
           `Please send me your ENS name or Ethereum address to get started.\n\n` +
           `Examples:\n` +
           `• \`vitalik.eth\`\n` +
@@ -79,7 +79,7 @@ function initializeBot(botToken) {
           `🔑 *Your Registered Identifier*\n\n` +
           `\`${identifier}\`\n\n` +
           `Use this when starting your node:\n` +
-          `\`node index.js --tg-alert-ens ${identifier}\``,
+          `\`node index.js --owner ${identifier}\``,
           { parse_mode: 'Markdown' }
         );
         console.log(`🔑 Showed identifier ${identifier} to chatId ${chatId}`);
@@ -206,7 +206,7 @@ function initializeBot(botToken) {
         `*Setup Instructions:*\n` +
         `1️⃣ Use /start and provide your ENS or address\n` +
         `2️⃣ Start your node with:\n` +
-        `   \`node index.js --tg-alert-ens YOUR_ENS_OR_ADDRESS\`\n` +
+        `   \`node index.js --owner YOUR_ENS_OR_ADDRESS\`\n` +
         `3️⃣ You'll receive alerts when your clients crash`,
         { parse_mode: 'Markdown' }
       );
@@ -301,9 +301,7 @@ async function handleIdentifierInput(chatId, identifier) {
         `ENS: \`${trimmed}\`\n` +
         `Address: \`${address}\`\n\n` +
         `Start your node with:\n` +
-        `\`node index.js --tg-alert-ens ${trimmed}\`\n\n` +
-        `You can also use your address:\n` +
-        `\`node index.js --tg-alert-ens ${address}\``,
+        `\`node index.js --owner ${trimmed}\`\n\n`,
         { parse_mode: 'Markdown' }
       );
       console.log(`✅ Registered ENS ${trimmed} (${address}) for chatId ${chatId}`);
@@ -331,7 +329,7 @@ async function handleIdentifierInput(chatId, identifier) {
         `✅ *Successfully registered!*\n\n` +
         `Address: \`${normalized}\`\n\n` +
         `Start your node with:\n` +
-        `\`node index.js --tg-alert-ens ${normalized}\``,
+        `\`node index.js --owner ${normalized}\``,
         { parse_mode: 'Markdown' }
       );
       console.log(`✅ Registered address ${normalized} for chatId ${chatId}`);
@@ -404,9 +402,7 @@ async function handleAddressChange(chatId, identifier) {
         `New ENS: \`${trimmed}\`\n` +
         `New Address: \`${address}\`\n\n` +
         `Start your node with:\n` +
-        `\`node index.js --tg-alert-ens ${trimmed}\`\n\n` +
-        `You can also use your address:\n` +
-        `\`node index.js --tg-alert-ens ${address}\``,
+        `\`node index.js --owner ${trimmed}\`\n\n`,
         { parse_mode: 'Markdown' }
       );
       console.log(`✅ Changed from ${oldInfo.oldAddress} to ${trimmed} (${address}) for chatId ${chatId}`);
@@ -438,7 +434,7 @@ async function handleAddressChange(chatId, identifier) {
         `Old: \`${oldInfo.oldEns || oldInfo.oldAddress}\`\n` +
         `New Address: \`${normalized}\`\n\n` +
         `Start your node with:\n` +
-        `\`node index.js --tg-alert-ens ${normalized}\``,
+        `\`node index.js --owner ${normalized}\``,
         { parse_mode: 'Markdown' }
       );
       console.log(`✅ Changed from ${oldInfo.oldAddress} to ${normalized} for chatId ${chatId}`);

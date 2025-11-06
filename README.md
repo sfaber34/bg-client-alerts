@@ -107,11 +107,11 @@ You should see:
 4. **Bot confirms registration** and shows your identifier
 5. **Start your node** with your identifier:
    ```bash
-   node index.js --tg-alert-ens vitalik.eth
+   node index.js --owner vitalik.eth
    ```
    or
    ```bash
-   node index.js --tg-alert-ens 0x1234...abcd
+   node index.js --owner 0x1234...abcd
    ```
 6. **Receive alerts** when your clients crash!
 
