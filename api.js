@@ -4,7 +4,7 @@ const fs = require('fs');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { getChatIdByIdentifier, isValidIdentifier } = require('./utils');
-const { sendAlert } = require('./bot');
+const { sendAlert, processWebhookUpdate, getWebhookPath } = require('./bot');
 
 /**
  * Create and configure Express API
@@ -37,6 +37,21 @@ function createAPI(port) {
   app.get('/health', (req, res) => {
     res.json({ status: 'ok' });
   });
+
+  // Telegram webhook endpoint
+  const webhookPath = getWebhookPath();
+  if (webhookPath) {
+    app.post(webhookPath, (req, res) => {
+      try {
+        processWebhookUpdate(req.body);
+        res.sendStatus(200);
+      } catch (error) {
+        console.error('❌ Error processing webhook:', error);
+        res.sendStatus(500);
+      }
+    });
+    console.log(`🔗 Webhook endpoint registered: ${webhookPath}`);
+  }
 
   // Alert endpoint
   app.post('/api/alert', alertLimiter, async (req, res) => {

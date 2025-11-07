@@ -24,6 +24,13 @@ function validateEnvVars() {
     return false;
   }
 
+  // Check for webhook URL (optional, but recommended for production)
+  if (process.env.WEBHOOK_URL) {
+    console.log('✅ Webhook URL configured - will use webhooks instead of polling');
+  } else {
+    console.log('⚠️  No WEBHOOK_URL configured - will use polling (not recommended for production)');
+  }
+
   // Check for Firebase service account file
   const firebasePath = path.join(__dirname, 'firebase-service-account.json');
   if (!fs.existsSync(firebasePath)) {
@@ -76,21 +83,25 @@ async function main() {
     const { initializeFirebase } = require('./firebase');
     initializeFirebase();
 
-    // Initialize Telegram bot
+    // Initialize Telegram bot with webhook support
     const { initializeBot, stopBot } = require('./bot');
-    initializeBot(process.env.TELEGRAM_BOT_TOKEN);
+    const webhookUrl = process.env.WEBHOOK_URL || null;
+    await initializeBot(process.env.TELEGRAM_BOT_TOKEN, webhookUrl);
 
-    // Start API server
+    // Start API server (after bot initialization so webhook path is available)
     const { createAPI } = require('./api');
     const port = parseInt(process.env.PORT) || 3000;
     const { server } = createAPI(port);
 
     console.log('\n✅ All services started successfully!');
-    console.log('🤖 Telegram bot is ready');
+    console.log(`🤖 Telegram bot is ready (${webhookUrl ? 'webhook mode' : 'polling mode'})`);
     console.log(`🌐 API server is running on port ${port}`);
     console.log('\n📊 Service Status:');
-    console.log('   - Health Check: http://localhost:' + port + '/health');
-    console.log('   - Alert Endpoint: http://localhost:' + port + '/api/alert');
+    console.log('   - Health Check: https://localhost:' + port + '/health');
+    console.log('   - Alert Endpoint: https://localhost:' + port + '/api/alert');
+    if (webhookUrl) {
+      console.log('   - Webhook URL: ' + webhookUrl);
+    }
     console.log('\n⏹️  Press Ctrl+C to stop the service\n');
 
     // Graceful shutdown
@@ -102,7 +113,7 @@ async function main() {
         console.log('✅ API server closed');
       });
 
-      // Stop Telegram bot polling
+      // Stop Telegram bot (polling or webhook)
       stopBot();
 
       console.log('✅ Shutdown complete. Goodbye! 👋\n');

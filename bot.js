@@ -15,9 +15,47 @@ const pendingDeletions = new Map();
 /**
  * Initialize and start the Telegram bot
  * @param {string} botToken - Telegram bot token
+ * @param {string} webhookUrl - Optional webhook URL (if not provided, uses polling)
  */
-function initializeBot(botToken) {
-  bot = new TelegramBot(botToken, { polling: true });
+async function initializeBot(botToken, webhookUrl = null) {
+  if (webhookUrl) {
+    // Use webhooks
+    bot = new TelegramBot(botToken, { webHook: false });
+    
+    try {
+      // Delete any existing webhook first
+      await bot.deleteWebHook();
+      
+      // Set new webhook
+      const webhookPath = `/webhook/${botToken}`;
+      const fullWebhookUrl = `${webhookUrl}${webhookPath}`;
+      
+      await bot.setWebHook(fullWebhookUrl);
+      console.log(`🔗 Webhook set to: ${fullWebhookUrl}`);
+      
+      // Store the webhook path for the API to use
+      bot.webhookPath = webhookPath;
+    } catch (error) {
+      console.error('❌ Failed to set webhook:', error);
+      throw error;
+    }
+  } else {
+    // Use polling (fallback)
+    bot = new TelegramBot(botToken, { polling: true });
+
+    // Handle polling errors
+    bot.on('polling_error', (error) => {
+      console.error('[polling_error]', JSON.stringify({
+        code: error.code,
+        message: error.message
+      }));
+      
+      // Only log details for non-network errors
+      if (error.code !== 'EFATAL' && error.code !== 'ECONNRESET') {
+        console.error('Full error:', error);
+      }
+    });
+  }
 
   // /start command - Ask for ENS or address
   bot.onText(/\/start/, async (msg) => {
@@ -529,17 +567,43 @@ async function sendAlert(chatId, alertType, message) {
 }
 
 /**
+ * Process incoming webhook update
+ * @param {object} update - Telegram update object
+ */
+function processWebhookUpdate(update) {
+  if (!bot) {
+    throw new Error('Bot not initialized');
+  }
+  bot.processUpdate(update);
+}
+
+/**
+ * Get the webhook path for the bot
+ * @returns {string|null} Webhook path or null if using polling
+ */
+function getWebhookPath() {
+  return bot ? bot.webhookPath : null;
+}
+
+/**
  * Stop the Telegram bot
  */
 function stopBot() {
   if (bot) {
-    bot.stopPolling();
-    console.log('🛑 Telegram bot stopped');
+    // Only stop polling if it was started
+    if (bot.isPolling()) {
+      bot.stopPolling();
+      console.log('🛑 Telegram bot polling stopped');
+    } else {
+      console.log('🛑 Telegram bot webhook closed');
+    }
   }
 }
 
 module.exports = {
   initializeBot,
   sendAlert,
-  stopBot
+  stopBot,
+  processWebhookUpdate,
+  getWebhookPath
 };
